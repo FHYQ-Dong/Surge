@@ -78,7 +78,7 @@ func TestProbeRedirect_SameOriginPreservesAuthHeaders(t *testing.T) {
 	}
 }
 
-func TestProbeRedirect_CrossOriginDropsSensitiveHeaders(t *testing.T) {
+func TestProbeRedirect_CrossOriginForwardsExplicitHeaders(t *testing.T) {
 	var gotAuth, gotCookie, gotAPIKey, gotRange string
 
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -105,14 +105,14 @@ func TestProbeRedirect_CrossOriginDropsSensitiveHeaders(t *testing.T) {
 		t.Fatalf("ProbeServer failed: %v", err)
 	}
 
-	if gotAuth != "" {
-		t.Fatalf("authorization leaked on cross-origin redirect: %q", gotAuth)
+	if gotAuth != "Bearer cross-origin" {
+		t.Fatalf("authorization leaked/missing on cross-origin redirect: %q", gotAuth)
 	}
-	if gotCookie != "" {
-		t.Fatalf("cookie leaked on cross-origin redirect: %q", gotCookie)
+	if gotCookie != "session=cross-origin" {
+		t.Fatalf("cookie leaked/missing on cross-origin redirect: %q", gotCookie)
 	}
-	if gotAPIKey != "" {
-		t.Fatalf("x-api-key leaked on cross-origin redirect: %q", gotAPIKey)
+	if gotAPIKey != "cross-origin-key" {
+		t.Fatalf("x-api-key leaked/missing on cross-origin redirect: %q", gotAPIKey)
 	}
 	if gotRange != "bytes=0-0" {
 		t.Fatalf("range = %q, want bytes=0-0", gotRange)

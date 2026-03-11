@@ -37,6 +37,9 @@ type ProbeResult struct {
 	ContentType   string
 }
 
+// probeHeadersContextKey is used to pass custom headers to the HTTP client's CheckRedirect function
+type probeHeadersContextKey struct{}
+
 func resolveProxyURL() string {
 	settings, err := config.LoadSettings()
 	if err != nil {
@@ -55,15 +58,42 @@ func ProbeServer(ctx context.Context, rawurl string, filenameHint string, header
 	return ProbeServerWithProxy(ctx, rawurl, filenameHint, headers, resolveProxyURL())
 }
 
+var (
+	probeHostLocks sync.Map // map[string]*sync.Mutex
+)
+
+// getProbeHostLock returns a mutex for a specific host to sequentialize probes
+func getProbeHostLock(rawurl string) *sync.Mutex {
+	parsed, err := neturl.Parse(rawurl)
+	host := "unknown"
+	if err == nil {
+		host = parsed.Host
+	}
+
+	rawLock, _ := probeHostLocks.LoadOrStore(host, &sync.Mutex{})
+	return rawLock.(*sync.Mutex)
+}
+
 // ProbeServerWithProxy is the hot-path variant for callers that already know
 // the effective proxy and want probe traffic to match the eventual download path
 // without re-reading settings from disk.
 func ProbeServerWithProxy(ctx context.Context, rawurl string, filenameHint string, headers map[string]string, proxyURL string) (*ProbeResult, error) {
 	utils.Debug("Probing server: %s", rawurl)
 
+	// Embed custom headers in context so CheckRedirect can use them
+	if headers != nil {
+		ctx = context.WithValue(ctx, probeHeadersContextKey{}, headers)
+	}
+
 	var resp *http.Response
 
 	client := getProbeClient(proxyURL)
+
+	// Sequentialize probes to the same host to prevent rate limiting (e.g., Google Drive)
+	hostLock := getProbeHostLock(rawurl)
+	hostLock.Lock()
+	defer hostLock.Unlock()
+
 	var err error
 
 	for attempt := range 3 {
@@ -229,6 +259,15 @@ func getProbeClient(proxyURL string) *http.Client {
 			}
 			if len(via) > 0 {
 				copyProbeRedirectHeaders(req, via[0])
+			}
+
+			// Re-apply custom explicitly provided headers on cross-origin redirects
+			if customHeaders, ok := req.Context().Value(probeHeadersContextKey{}).(map[string]string); ok {
+				for k, v := range customHeaders {
+					if !strings.EqualFold(k, "Range") {
+						req.Header.Set(k, v)
+					}
+				}
 			}
 			return nil
 		},
