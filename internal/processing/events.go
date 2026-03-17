@@ -16,6 +16,7 @@ import (
 var (
 	renameCompletedFile = retryRename
 	copyCompletedFile   = utils.CopyFile
+	notify              = utils.Notify
 )
 
 // advanceRemainingTasks keeps saved chunk boundaries aligned when pause
@@ -228,6 +229,16 @@ func (mgr *LifecycleManager) StartEventWorker(ch <-chan interface{}) {
 				}); err != nil {
 					utils.Debug("Lifecycle: Failed to persist finalization error state: %v", err)
 				}
+				if filename == "" {
+					filename = m.DownloadID
+				}
+				msg := "Download failed"
+				if err != nil {
+					msg = err.Error()
+				}
+				if settings := mgr.GetSettings(); settings != nil && settings.General.DownloadCompleteNotification {
+					notify(fmt.Sprintf("Download failed: %s", filename), msg)
+				}
 				break
 			}
 
@@ -249,6 +260,23 @@ func (mgr *LifecycleManager) StartEventWorker(ch <-chan interface{}) {
 			if err := state.DeleteTasks(m.DownloadID); err != nil {
 				utils.Debug("Lifecycle: Failed to delete completed tasks: %v", err)
 			}
+			if settings := mgr.GetSettings(); settings != nil && settings.General.DownloadCompleteNotification {
+
+				if filename == "" {
+					filename = m.Filename
+				}
+				if filename == "" {
+					filename = m.DownloadID
+				}
+
+				title := fmt.Sprintf("Download Complete: %s", filename)
+
+				if m.Elapsed.Seconds() <= 0 {
+					notify(title, "Download complete!")
+				} else {
+					notify(title, fmt.Sprintf("Download complete in %s (%.2f MB/s)", m.Elapsed.Truncate(time.Second), avgSpeed/float64(types.MB)))
+				}
+			}
 
 		case events.DownloadErrorMsg:
 			existing, _ := state.GetDownload(m.DownloadID)
@@ -266,6 +294,23 @@ func (mgr *LifecycleManager) StartEventWorker(ch <-chan interface{}) {
 				if err := RemoveIncompleteFile(destPath); err != nil {
 					utils.Debug("Lifecycle: Failed to remove incomplete file after error: %v", err)
 				}
+			}
+			if settings := mgr.GetSettings(); settings != nil && settings.General.DownloadCompleteNotification {
+
+				filename := m.Filename
+				if filename == "" && existing != nil {
+					filename = existing.Filename
+				}
+				if filename == "" {
+					filename = m.DownloadID
+				}
+
+				msg := "Download failed"
+				if m.Err != nil {
+					msg = m.Err.Error()
+				}
+
+				notify(fmt.Sprintf("Download failed: %s", filename), msg)
 			}
 
 		case events.DownloadRemovedMsg:
