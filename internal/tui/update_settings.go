@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -80,16 +82,34 @@ func (m RootModel) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Open file browser for default_download_dir
+	// Open file browser for default_download_dir or theme_path
 	if key.Matches(msg, m.keys.Settings.Browse) {
 		settingKey := m.getCurrentSettingKey()
-		if settingKey == "default_download_dir" {
+		switch settingKey {
+		case "default_download_dir":
 			originalPath := m.Settings.General.DefaultDownloadDir
 			browseDir := originalPath
 			if browseDir == "" {
 				browseDir = m.PWD
 			}
-			return m, m.openDirectoryPicker(FilePickerOriginSettings, originalPath, browseDir)
+			return m, m.openDirectoryPicker(FilePickerOriginSettings, originalPath, browseDir, false, true)
+		case "theme_path":
+			originalPath := m.Settings.General.ThemePath
+			browseDir := originalPath
+			if browseDir != "" {
+				if info, err := os.Stat(browseDir); err == nil && !info.IsDir() {
+					browseDir = filepath.Dir(browseDir)
+				}
+			}
+			if browseDir == "" {
+				browseDir = config.GetThemesDir()
+			}
+			if browseDir == "" {
+				browseDir = m.PWD
+			}
+			cmd := m.openDirectoryPicker(FilePickerOriginTheme, originalPath, browseDir, true, false)
+			m.filepicker.AllowedTypes = []string{".toml"}
+			return m, cmd
 		}
 		return m, nil
 	}
@@ -131,7 +151,7 @@ func (m RootModel) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if settingKey == "theme" {
 			newTheme := (m.Settings.General.Theme + 1) % 3
 			m.Settings.General.Theme = newTheme
-			m.ApplyTheme(newTheme)
+			m.ApplyTheme(newTheme, m.Settings.General.ThemePath)
 			return m, nil
 		}
 
@@ -184,8 +204,8 @@ func (m RootModel) updateSettings(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		defaults := config.DefaultSettings()
 		currentCategory := categories[m.SettingsActiveTab]
 		m.resetSettingToDefault(currentCategory, settingKey, defaults)
-		if settingKey == "theme" {
-			m.ApplyTheme(m.Settings.General.Theme)
+		if settingKey == "theme" || settingKey == "theme_path" {
+			m.ApplyTheme(m.Settings.General.Theme, m.Settings.General.ThemePath)
 		}
 		return m, nil
 	}

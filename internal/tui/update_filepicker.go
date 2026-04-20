@@ -24,10 +24,17 @@ func (m *RootModel) handleBatchFileSelection(path string) (tea.Model, tea.Cmd) {
 func (m RootModel) updateFilePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if key.Matches(msg, m.keys.FilePicker.Cancel) {
 		switch m.filepickerOrigin {
+		case FilePickerOriginTheme:
+			m.Settings.General.ThemePath = m.filepickerOriginalPath
+			m.filepickerOrigin = FilePickerOriginNone
+			m.state = SettingsState
+			m.resetFilepickerToDirMode()
+			return m, nil
 		case FilePickerOriginSettings:
 			m.Settings.General.DefaultDownloadDir = m.filepickerOriginalPath
 			m.filepickerOrigin = FilePickerOriginNone
 			m.state = SettingsState
+			m.resetFilepickerToDirMode()
 			return m, nil
 		case FilePickerOriginExtension:
 			m.inputs[2].SetValue(m.filepickerOriginalPath)
@@ -54,11 +61,17 @@ func (m RootModel) updateFilePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// H key to jump to default download directory
 	if key.Matches(msg, m.keys.FilePicker.GotoHome) {
-		return m, m.handleFilePickerGotoHome()
+		cmd := m.handleFilePickerGotoHome()
+		if m.filepickerOrigin == FilePickerOriginTheme {
+			m.applyFilePickerMode(true, false)
+			m.filepicker.AllowedTypes = []string{".toml"}
+		}
+		return m, cmd
 	}
 
-	// '.' to select current directory
-	if key.Matches(msg, m.keys.FilePicker.UseDir) {
+	// '.' to select current directory — only in directory-picking modes.
+	// Skip for FilePickerOriginTheme which is file-only.
+	if m.filepickerOrigin != FilePickerOriginTheme && key.Matches(msg, m.keys.FilePicker.UseDir) {
 		return m.handleFilePickerSelection(m.filepicker.CurrentDirectory)
 	}
 
@@ -85,8 +98,7 @@ func (m RootModel) updateBatchFilePicker(msg tea.KeyPressMsg) (tea.Model, tea.Cm
 	// H key to jump to default download directory
 	if key.Matches(msg, m.keys.FilePicker.GotoHome) {
 		cmd := m.handleFilePickerGotoHome()
-		m.filepicker.FileAllowed = true
-		m.filepicker.DirAllowed = false
+		m.applyFilePickerMode(true, false)
 		return m, cmd
 	}
 
