@@ -26,6 +26,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
+	"github.com/kardianos/service"
 	"github.com/spf13/cobra"
 )
 
@@ -492,6 +493,23 @@ func startTUI(port int, exitWhenDone bool, noResume bool) error {
 
 	m := tui.InitialRootModel(port, Version, GlobalService, currentLifecycle(), noResume, Commit)
 	m = m.WithEnqueueContext(currentEnqueueContext(), currentEnqueueCancel())
+
+	if s, err := GetService(); err == nil {
+		if status, statusErr := s.Status(); statusErr == nil {
+			// If service is installed (running or stopped), consider auto-start as enabled
+			m.Settings.General.AutoStart = (status == service.StatusRunning || status == service.StatusStopped)
+		}
+
+		m.ToggleServiceFunc = func(enable bool) error {
+			if enable {
+				return s.Install()
+			}
+			// Best effort stop before uninstall
+			_ = s.Stop()
+			return s.Uninstall()
+		}
+	}
+
 	m.ServerHost = serverBindHost
 	if m.ServerHost == "" {
 		m.ServerHost = "127.0.0.1"
@@ -588,7 +606,7 @@ func performRestart() error {
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 func Execute() error {
-	return rootCmd.Execute()
+	return RunService()
 }
 
 func init() {
